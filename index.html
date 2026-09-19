@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ECMAScript AST & Token Inspector</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- CodeMirror CSS & Themes -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/lint/lint.min.css">
+
+  <!-- CodeMirror JS & Javascript Mode -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+
+  <!-- Industry Standard Parsers: Acorn & Esprima & Babel Standalone -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/acorn/8.11.3/acorn.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/esprima/4.0.1/esprima.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
+
+  <style>
+    /* CodeMirror dark theme customization */
+    .CodeMirror {
+      height: 100% !important;
+      font-family: 'Fira Code', 'Cascadia Code', Consolas, Monaco, 'Courier New', monospace;
+      font-size: 0.9rem;
+      border-radius: 0.5rem;
+      background-color: #0f172a !important; /* Slate 900 */
+    }
+    .CodeMirror-gutters {
+      background-color: #1e293b !important;
+      border-right: 1px solid #334155 !important;
+    }
+    .cm-error-line {
+      background-color: rgba(239, 68, 68, 0.25) !important;
+    }
+    .cm-highlight-range {
+      background-color: rgba(59, 130, 246, 0.35) !important;
+      border-bottom: 2px solid #60a5fa;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* AST Node Styling */
+    .ast-node {
+      font-family: 'Fira Code', monospace;
+      transition: all 0.15s ease-in-out;
+    }
+    .ast-node:hover {
+      background-color: rgba(51, 65, 85, 0.6);
+    }
+    .ast-badge {
+      font-size: 0.725rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 0.25rem;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans antialiased text-slate-200 bg-slate-950 overflow-hidden">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-md">
+    <div class="flex items-center space-x-3">
+      <div class="bg-gradient-to-tr from-amber-500 to-yellow-300 text-slate-950 p-2 rounded-lg font-black text-xl flex items-center justify-center w-9 h-9 shadow-lg shadow-amber-500/20">
+        JS
+      </div>
+      <div>
+        <h1 class="font-bold text-base md:text-lg text-slate-100 leading-tight flex items-center gap-2">
+          ECMAScript Parser & AST Inspector
+          <span class="text-xs font-normal px-2 py-0.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full">ECMA-262 Analysis</span>
+        </h1>
+        <p class="text-xs text-slate-400">Explore JS Lexical Tokens, Abstract Syntax Trees & Grammar Specifications</p>
+      </div>
+    </div>
+
+    <!-- Controls Row -->
+    <div class="flex flex-wrap items-center gap-2 text-xs">
+      <!-- Parser Switcher -->
+      <div class="flex items-center bg-slate-800 border border-slate-700 rounded-lg p-1">
+        <label for="parser-select" class="text-slate-400 px-2 font-medium flex items-center gap-1">
+          <i class="fa-solid fa-gears text-amber-400"></i> Parser:
+        </label>
+        <select id="parser-select" class="bg-slate-900 text-amber-300 font-semibold rounded px-2 py-1 outline-none border border-slate-700 focus:border-amber-500 cursor-pointer">
+          <option value="acorn">Acorn v8 (ESTree)</option>
+          <option value="esprima">Esprima v4 (ESTree)</option>
+          <option value="babel">Babel Parser v7 (Babel AST)</option>
+        </select>
+      </div>
+
+      <!-- ES Target / Mode -->
+      <div class="flex items-center bg-slate-800 border border-slate-700 rounded-lg p-1">
+        <label for="source-type" class="text-slate-400 px-2 font-medium">Source:</label>
+        <select id="source-type" class="bg-slate-900 text-slate-200 rounded px-2 py-1 outline-none border border-slate-700 focus:border-indigo-500 cursor-pointer">
+          <option value="module">Module (ESM)</option>
+          <option value="script">Script</option>
+        </select>
+      </div>
+
+      <!-- Code Presets Dropdown -->
+      <div class="flex items-center bg-slate-800 border border-slate-700 rounded-lg p-1">
+        <label for="preset-select" class="text-slate-400 px-2 font-medium flex items-center gap-1">
+          <i class="fa-solid fa-code text-indigo-400"></i> Presets:
+        </label>
+        <select id="preset-select" class="bg-slate-900 text-indigo-300 rounded px-2 py-1 outline-none border border-slate-700 focus:border-indigo-500 cursor-pointer max-w-[180px]">
+          <option value="es2024">ES2024 / Modern JS</option>
+          <option value="async_generators">Async & Generators</option>
+          <option value="classes_fields">Classes & Private Fields</option>
+          <option value="optional_chaining">Optional Chaining & Nullish</option>
+          <option value="syntax_error_1">Syntax Error (Unexpected Token)</option>
+          <option value="syntax_error_2">Syntax Error (Unterminated String)</option>
+        </select>
+      </div>
+
+      <!-- Re-parse Button -->
+      <button id="btn-parse" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition shadow-md shadow-indigo-600/30 active:scale-95">
+        <i class="fa-solid fa-play text-xs"></i> Parse
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Editor & Inspector Body -->
+  <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
+    <!-- Left Panel: Source Code Editor -->
+    <section class="w-full md:w-1/2 flex flex-col border-b md:border-b-0 md:border-r border-slate-800 bg-slate-900">
+      <!-- Editor Header -->
+      <div class="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2">
+          <i class="fa-brands fa-js text-yellow-400"></i>
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-300">JavaScript Source Code</span>
+        </div>
+        <div class="flex items-center gap-3 text-xs text-slate-400">
+          <span id="code-stats">0 lines | 0 chars</span>
+          <button id="btn-clear-code" class="hover:text-red-400 transition" title="Clear Code">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- CodeMirror Container -->
+      <div class="flex-1 relative overflow-hidden">
+        <textarea id="code-editor"></textarea>
+      </div>
+
+      <!-- Status Bar / Parse Summary -->
+      <div id="status-bar" class="bg-slate-950 border-t border-slate-800 px-4 py-1.5 text-xs flex items-center justify-between text-slate-400">
+        <div class="flex items-center gap-2">
+          <span id="status-indicator" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span id="status-text">Parsed successfully in 0ms</span>
+        </div>
+        <div class="flex items-center gap-4 text-slate-500">
+          <span id="token-count-badge"><i class="fa-solid fa-coins text-amber-500"></i> 0 Tokens</span>
+          <span id="ast-nodes-badge"><i class="fa-solid fa-sitemap text-indigo-400"></i> 0 Nodes</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Panel: AST, Tokens, Errors, Spec Reference -->
+    <section class="w-full md:w-1/2 flex flex-col bg-slate-950">
+      <!-- Tabs Navigation -->
+      <div class="bg-slate-900 border-b border-slate-800 px-2 pt-2 flex items-center justify-between shrink-0 overflow-x-auto">
+        <div class="flex items-center space-x-1" role="tablist">
+          <button class="tab-btn active border-b-2 border-indigo-500 text-indigo-400 px-3 py-2 text-xs font-semibold flex items-center gap-1.5 bg-slate-800/50 rounded-t" data-tab="tab-ast">
+            <i class="fa-solid fa-sitemap"></i> AST Tree
+          </button>
+          <button class="tab-btn border-b-2 border-transparent text-slate-400 hover:text-slate-200 px-3 py-2 text-xs font-semibold flex items-center gap-1.5 rounded-t" data-tab="tab-tokens">
+            <i class="fa-solid fa-coins text-amber-400"></i> Tokens
+          </button>
+          <button class="tab-btn border-b-2 border-transparent text-slate-400 hover:text-slate-200 px-3 py-2 text-xs font-semibold flex items-center gap-1.5 rounded-t" data-tab="tab-json">
+            <i class="fa-solid fa-code"></i> Raw JSON
+          </button>
+          <button class="tab-btn border-b-2 border-transparent text-slate-400 hover:text-slate-200 px-3 py-2 text-xs font-semibold flex items-center gap-1.5 rounded-t relative" data-tab="tab-errors">
+            <i class="fa-solid fa-triangle-exclamation text-rose-400"></i> Diagnostics
+            <span id="error-badge" class="hidden bg-rose-500 text-white font-bold text-[10px] px-1.5 py-0.2 rounded-full">0</span>
+          </button>
+          <button class="tab-btn border-b-2 border-transparent text-slate-400 hover:text-slate-200 px-3 py-2 text-xs font-semibold flex items-center gap-1.5 rounded-t" data-tab="tab-spec">
+            <i class="fa-solid fa-book-bookmark text-emerald-400"></i> ECMA Grammar
+          </button>
+        </div>
+
+        <!-- Filter / Search Tools for AST/Tokens -->
+        <div class="flex items-center gap-2 pb-1 pr-2">
+          <div class="relative">
+            <input type="text" id="inspector-search" placeholder="Search node/token..." class="bg-slate-950 text-xs text-slate-200 px-2.5 py-1 pl-7 rounded border border-slate-700 outline-none focus:border-indigo-500 w-32 md:w-40">
+            <i class="fa-solid fa-magnifying-glass text-slate-500 absolute left-2 top-2 text-[10px]"></i>
+          </div>
+          <button id="btn-expand-all" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-700" title="Expand All Nodes">
+            <i class="fa-solid fa-folder-open"></i>
+          </button>
+          <button id="btn-collapse-all" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-700" title="Collapse All Nodes">
+            <i class="fa-solid fa-folder"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div class="flex-1 overflow-auto p-3 relative">
+
+        <!-- TAB 1: AST Interactive Tree -->
+        <div id="tab-ast" class="tab-pane h-full">
+          <div class="text-xs text-slate-400 mb-2 flex items-center justify-between border-b border-slate-800/80 pb-2">
+            <span>Hover or click AST nodes to highlight corresponding JS source code.</span>
+            <span id="tree-depth-info" class="text-[11px] text-slate-500">Root: Program</span>
+          </div>
+          <div id="ast-tree-container" class="font-mono text-xs space-y-1">
+            <!-- Dynamic Tree Nodes Rendered Here -->
+          </div>
+        </div>
+
+        <!-- TAB 2: Token Stream Table -->
+        <div id="tab-tokens" class="tab-pane hidden">
+          <div class="text-xs text-slate-400 mb-2 flex items-center justify-between border-b border-slate-800/80 pb-2">
+            <span>Lexical Token Stream produced by Lexer / Tokenizer.</span>
+            <span id="token-type-summary" class="text-[11px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">0 Tokens Total</span>
+          </div>
+          <div class="overflow-x-auto border border-slate-800 rounded-lg">
+            <table class="w-full text-left text-xs font-mono">
+              <thead class="bg-slate-900 text-slate-400 border-b border-slate-800 uppercase text-[10px]">
+                <tr>
+                  <th class="p-2 w-12 text-center">#</th>
+                  <th class="p-2">Type</th>
+                  <th class="p-2">Value / Literal</th>
+                  <th class="p-2 w-24">Location</th>
+                  <th class="p-2 w-24">Range</th>
+                </tr>
+              </thead>
+              <tbody id="token-table-body" class="divide-y divide-slate-800/60 bg-slate-950">
+                <!-- Dynamic Tokens Rendered Here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 3: Raw JSON Tree -->
+        <div id="tab-json" class="tab-pane hidden h-full flex flex-col">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs text-slate-400">Serializable AST representation in JSON.</span>
+            <button id="btn-copy-json" class="bg-slate-800 hover:bg-slate-700 text-xs px-2.5 py-1 rounded text-slate-300 border border-slate-700 flex items-center gap-1 transition">
+              <i class="fa-regular fa-copy"></i> Copy AST JSON
+            </button>
+          </div>
+          <pre id="json-viewer" class="flex-1 bg-slate-900 p-3 rounded-lg overflow-auto font-mono text-xs text-emerald-400 border border-slate-800 select-all"></pre>
+        </div>
+
+        <!-- TAB 4: Diagnostics / Syntax Errors -->
+        <div id="tab-errors" class="tab-pane hidden">
+          <div id="error-container" class="space-y-3">
+            <div class="p-4 bg-emerald-950/40 border border-emerald-500/30 rounded-lg text-emerald-300 text-xs flex items-center gap-3">
+              <i class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>
+              <div>
+                <div class="font-bold">No Syntax or Parsing Errors</div>
+                <div class="text-emerald-400/80">Source code conforms to selected ECMAScript grammar specification.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: ECMA Specification Grammar Map -->
+        <div id="tab-spec" class="tab-pane hidden space-y-4">
+          <div class="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-lg text-xs text-indigo-200">
+            <h3 class="font-bold text-sm text-indigo-300 mb-1 flex items-center gap-1.5">
+              <i class="fa-solid fa-book"></i> ECMA-262 Language Specification Mapping
+            </h3>
+            <p>This breakdown maps AST nodes produced by the parser back to formal Context-Free Grammar (CFG) production rules defined in the official ECMA-262 specification.</p>
+          </div>
+
+          <div id="spec-grammar-list" class="space-y-3 text-xs">
+            <!-- Dynamic ECMA Spec mapping cards -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- Notification Toast Container -->
+  <div id="toast" class="fixed bottom-4 right-4 bg-slate-800 text-slate-100 px-4 py-2 rounded-lg border border-slate-700 shadow-xl text-xs flex items-center gap-2 transform translate-y-20 opacity-0 transition-all duration-300 z-50">
+    <i id="toast-icon" class="fa-solid fa-circle-info text-indigo-400"></i>
+    <span id="toast-msg">Notification message</span>
+  </div>
+
+  <script>
+    // Preset Code Snippets demonstrating various ECMAScript standard constructs
+    const PRESETS = {
+      es2024: `// ES2024 / Modern ECMAScript Standard Showcase
+import { parse } from 'ecma-spec';
+
+const VERSION = "ES2024";
+const features = ["Top-level Await", "Pipeline Operator", "Record & Tuple"];
+
+// Class with Private Fields and Static Blocks
+class SpecAnalyzer {
+  #internalState = 0;
+  static specName = "ECMA-262";
+
+  static {
+    console.log(\`Initializing \${this.specName} engine...\`);
+  }
+
+  constructor(initial = 10) {
+    this.#internalState = initial;
+  }
+
+  // Nullish coalescing and optional chaining
+  computeValue(config) {
+    const scale = config?.settings?.scale ?? 1.0;
+    return (this.#internalState * scale) || 0;
+  }
+}
+
+const analyzer = new SpecAnalyzer(42);
+const result = analyzer.computeValue({ settings: { scale: 2.5 } });
+`,
+      async_generators: `// Async Iteration & Generators (ECMAScript Standard)
+async function* fetchStream(url) {
+  const response = await fetch(url);
+  const reader = response.body.getReader();
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      yield value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+(async () => {
+  for await (const chunk of fetchStream('/api/data')) {
+    console.log("Chunk received:", chunk.length);
+  }
+})();
+`,
+      classes_fields: `// Classes, Private Methods, and Decorators
+class User {
+  #id;
+  #accessCount = 0;
+
+  constructor(id, name) {
+    this.#id = id;
+    this.name = name;
+  }
+
+  get id() {
+    this.#logAccess();
+    return this.#id;
+  }
+
+  #logAccess() {
+    this.#accessCount++;
+  }
+}
+`,
+      optional_chaining: `// Optional Chaining & Logical Assignment Operators
+const user = getResponse()?.data?.user;
+
+// Logical Assignment
+user.settings ||= { theme: 'dark' };
+user.active &&= user.hasToken();
+user.cache ??= new Map();
+`,
+      syntax_error_1: `// Syntax Error Demo: Unexpected token / Invalid construct
+function invalidSyntax(a, b) {
+  const x = 100 + ; // Unexpected semicolon after binary operator
+  return x * 2;
+}
+`,
+      syntax_error_2: `// Syntax Error Demo: Unterminated String Literal
+const message = "Unterminated string literal example
+console.log(message);
+`
+    };
+
+    // Global State
+    let cmEditor = null;
+    let currentAst = null;
+    let currentTokens = [];
+    let currentParseErrors = [];
+    let currentHighlightMarker = null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      // Initialize CodeMirror Editor
+      const textarea = document.getElementById('code-editor');
+      cmEditor = CodeMirror.fromTextArea(textarea, {
+        mode: 'javascript',
+        theme: 'dracula',
+        lineNumbers: true,
+        matchBrackets: true,
+        autoCloseBrackets: true,
+        indentUnit: 2,
+        tabSize: 2,
+        lineWrapping: true
+      });
+
+      // Set initial content
+      cmEditor.setValue(PRESETS.es2024);
+
+      // Event Listeners
+      cmEditor.on('change', debounce(parseCurrentCode, 300));
+
+      document.getElementById('btn-parse').addEventListener('click', parseCurrentCode);
+      document.getElementById('parser-select').addEventListener('change', parseCurrentCode);
+      document.getElementById('source-type').addEventListener('change', parseCurrentCode);
+      
+      document.getElementById('preset-select').addEventListener('change', (e) => {
+        const key = e.target.value;
+        if (PRESETS[key]) {
+          cmEditor.setValue(PRESETS[key]);
+        }
+      });
+
+      document.getElementById('btn-clear-code').addEventListener('click', () => {
+        cmEditor.setValue('');
+        cmEditor.focus();
+      });
+
+      // Tab Switching
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.tab-btn').forEach(b => {
+            b.classList.remove('active', 'border-indigo-500', 'text-indigo-400', 'bg-slate-800/50');
+            b.classList.add('border-transparent', 'text-slate-400');
+          });
+          btn.classList.add('active', 'border-indigo-500', 'text-indigo-400', 'bg-slate-800/50');
+          btn.classList.remove('border-transparent', 'text-slate-400');
+
+          const targetTab = btn.getAttribute('data-tab');
+          document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.add('hidden'));
+          document.getElementById(targetTab).classList.remove('hidden');
+        });
+      });
+
+      // AST Search & Expand/Collapse Controls
+      document.getElementById('inspector-search').addEventListener('input', (e) => {
+        filterInspectorNodes(e.target.value.trim().toLowerCase());
+      });
+
+      document.getElementById('btn-expand-all').addEventListener('click', () => toggleAllAstNodes(true));
+      document.getElementById('btn-collapse-all').addEventListener('click', () => toggleAllAstNodes(false));
+
+      document.getElementById('btn-copy-json').addEventListener('click', () => {
+        if (!currentAst) return;
+        const text = JSON.stringify(currentAst, null, 2);
+        copyToClipboard(text);
+        showToast('AST JSON copied to clipboard!', 'success');
+      });
+
+      // Initial Parse
+      parseCurrentCode();
+    });
+
+    function parseCurrentCode() {
+      const code = cmEditor.getValue();
+      const parserType = document.getElementById('parser-select').value;
+      const sourceType = document.getElementById('source-type').value;
+
+      // Update code line stats
+      const lines = cmEditor.lineCount();
+      document.getElementById('code-stats').innerText = `${lines} line${lines !== 1 ? 's' : ''} | ${code.length} chars`;
+
+      // Clear previous editor markers
+      clearErrorHighlights();
+
+      const startTime = performance.now();
+      currentAst = null;
+      currentTokens = [];
+      currentParseErrors = [];
+
+      try {
+        if (parserType === 'acorn') {
+          parseWithAcorn(code, sourceType);
+        } else if (parserType === 'esprima') {
+          parseWithEsprima(code, sourceType);
+        } else if (parserType === 'babel') {
+          parseWithBabel(code, sourceType);
+        }
+
+        const duration = (performance.now() - startTime).toFixed(1);
+        
+        // Update Status
+        updateStatus(true, `Parsed cleanly in ${duration}ms (${parserType.toUpperCase()})`);
+        
+        // Render Inspector Views
+        renderAstTree(currentAst);
+        renderTokenTable(currentTokens);
+        renderJsonView(currentAst);
+        renderDiagnostics(null);
+        renderSpecGrammarMap(currentAst);
+
+      } catch (err) {
+        const duration = (performance.now() - startTime).toFixed(1);
+        currentParseErrors.push(err);
+
+        updateStatus(false, `Parsing failed: ${err.message || err}`, duration);
+        highlightErrorInEditor(err);
+
+        renderDiagnostics(err);
+        renderAstTree(null);
+        renderTokenTable(currentTokens); // Partial or tokenizer fallback
+        renderJsonView({ error: err.message, loc: err.loc });
+        renderSpecGrammarMap(null);
+      }
+    }
+
+    function parseWithAcorn(code, sourceType) {
+      // Tokenize
+      try {
+        const tokenizer = acorn.tokenizer(code, {
+          ecmaVersion: 'latest',
+          sourceType: sourceType,
+          locations: true,
+          ranges: true
+        });
+        let token;
+        while ((token = tokenizer.getToken()) && token.type !== acorn.tokTypes.eof) {
+          currentTokens.push({
+            type: token.type.label,
+            value: code.slice(token.start, token.end),
+            start: token.start,
+            end: token.end,
+            loc: token.loc
+          });
+        }
+      } catch (e) {
+        // Tokenizer may fail on syntax error, ignore token stream error to let main parser catch detailed msg
+      }
+
+      // Parse AST
+      currentAst = acorn.parse(code, {
+        ecmaVersion: 'latest',
+        sourceType: sourceType,
+        locations: true,
+        ranges: true
+      });
+    }
+
+    function parseWithEsprima(code, sourceType) {
+      const options = {
+        jsx: true,
+        loc: true,
+        range: true,
+        tokens: true,
+        tolerant: false,
+        sourceType: sourceType
+      };
+
+      if (sourceType === 'module') {
+        currentAst = esprima.parseModule(code, options);
+      } else {
+        currentAst = esprima.parseScript(code, options);
+      }
+
+      if (currentAst.tokens) {
+        currentTokens = currentAst.tokens.map(t => ({
+          type: t.type,
+          value: t.value,
+          start: t.range ? t.range[0] : 0,
+          end: t.range ? t.range[1] : 0,
+          loc: t.loc
+        }));
+      }
+    }
+
+    function parseWithBabel(code, sourceType) {
+      if (window.Babel && window.Babel.packages && window.Babel.packages.parser) {
+        const parsed = window.Babel.packages.parser.parse(code, {
+          sourceType: sourceType,
+          plugins: ["jsx", "typescript", "classProperties", "privateMethods", "asyncGenerators", "dynamicImport", "optionalChaining", "nullishCoalescingOperator"],
+          tokens: true,
+          ranges: true
+        });
+        currentAst = parsed.program;
+        if (parsed.tokens) {
+          currentTokens = parsed.tokens.map(t => ({
+            type: t.type.label || t.type,
+            value: code.slice(t.start, t.end),
+            start: t.start,
+            end: t.end,
+            loc: t.loc
+          }));
+        }
+      } else {
+        // Fallback using Babel standalone transform AST output
+        const res = Babel.transform(code, { ast: true, code: false });
+        currentAst = res.ast.program;
+      }
+    }
+
+    let nodeCount = 0;
+
+    function renderAstTree(ast) {
+      const container = document.getElementById('ast-tree-container');
+      container.innerHTML = '';
+      nodeCount = 0;
+
+      if (!ast) {
+        container.innerHTML = `<div class="p-4 text-center text-slate-500 italic">No valid AST available due to parsing error.</div>`;
+        document.getElementById('ast-nodes-badge').innerHTML = `<i class="fa-solid fa-sitemap text-indigo-400"></i> 0 Nodes`;
+        return;
+      }
+
+      const treeHtml = createAstNodeElement(ast, 'Root');
+      container.appendChild(treeHtml);
+
+      document.getElementById('ast-nodes-badge').innerHTML = `<i class="fa-solid fa-sitemap text-indigo-400"></i> ${nodeCount} Nodes`;
+    }
+
+    function createAstNodeElement(node, keyName = '') {
+      if (node === null || typeof node !== 'object') {
+        const leaf = document.createElement('div');
+        leaf.className = 'pl-4 text-slate-400 flex items-center gap-1.5 py-0.5';
+        leaf.innerHTML = `<span class="text-slate-500">${keyName}:</span> <span class="text-amber-300">${JSON.stringify(node)}</span>`;
+        return leaf;
+      }
+
+      // Check array vs object
+      if (Array.isArray(node)) {
+        const arrWrapper = document.createElement('div');
+        arrWrapper.className = 'ast-node-group border-l border-slate-800 ml-2 pl-2 py-0.5';
+        
+        const header = document.createElement('div');
+        header.className = 'cursor-pointer select-none text-slate-400 hover:text-slate-200 flex items-center gap-1.5 py-0.5';
+        header.innerHTML = `<i class="fa-solid fa-chevron-down text-[9px] transition-transform duration-150 transform"></i> <span class="text-indigo-300 font-semibold">${keyName}</span> <span class="text-[10px] text-slate-500">[${node.length}]</span>`;
+        
+        const childrenDiv = document.createElement('div');
+        childrenDiv.className = 'pl-2 space-y-0.5';
+
+        node.forEach((item, idx) => {
+          childrenDiv.appendChild(createAstNodeElement(item, `[${idx}]`));
+        });
+
+        header.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isHidden = childrenDiv.classList.toggle('hidden');
+          header.querySelector('i').style.transform = isHidden ? 'rotate(-90deg)' : 'rotate(0deg)';
+        });
+
+        arrWrapper.appendChild(header);
+        arrWrapper.appendChild(childrenDiv);
+        return arrWrapper;
+      }
+
+      // Object Node (AST Node)
+      nodeCount++;
+      const isAstNode = typeof node.type === 'string';
+      const nodeType = isAstNode ? node.type : (keyName || 'Object');
+      const start = node.start ?? (node.range ? node.range[0] : null);
+      const end = node.end ?? (node.range ? node.range[1] : null);
+
+      const nodeWrapper = document.createElement('div');
+      nodeWrapper.className = `ast-node border-l border-slate-800/80 ml-2 pl-2 rounded py-0.5 transition-colors`;
+      nodeWrapper.dataset.nodeType = nodeType.toLowerCase();
+
+      // Node Badge color depending on AST Category
+      const categoryColor = getNodeColorClass(nodeType);
+
+      const header = document.createElement('div');
+      header.className = 'cursor-pointer select-none flex items-center justify-between gap-2 py-0.5 group';
+      
+      const locText = (start !== null && end !== null) ? `[${start}:${end}]` : '';
+
+      header.innerHTML = `
+        <div class="flex items-center gap-1.5 overflow-hidden">
+          <i class="fa-solid fa-chevron-down text-[9px] text-slate-500 transition-transform duration-150 transform"></i>
+          ${keyName ? `<span class="text-slate-400">${keyName}:</span>` : ''}
+          <span class="ast-badge font-bold ${categoryColor}">${nodeType}</span>
+          ${node.name ? `<span class="text-amber-300 font-semibold">"${node.name}"</span>` : ''}
+          ${node.value !== undefined && typeof node.value !== 'object' ? `<span class="text-emerald-400">=${JSON.stringify(node.value)}</span>` : ''}
+        </div>
+        ${locText ? `<span class="text-[10px] text-slate-500 group-hover:text-indigo-300 font-mono transition">${locText}</span>` : ''}
+      `;
+
+      const childrenDiv = document.createElement('div');
+      childrenDiv.className = 'pl-2 space-y-0.5';
+
+      // Iterate through keys (skip internal location meta for clean layout)
+      Object.keys(node).forEach(key => {
+        if (['loc', 'range', 'start', 'end', 'type', 'comments', 'tokens', 'errors'].includes(key)) return;
+        childrenDiv.appendChild(createAstNodeElement(node[key], key));
+      });
+
+      // Expand / Collapse toggle
+      header.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = childrenDiv.classList.toggle('hidden');
+        header.querySelector('i').style.transform = isHidden ? 'rotate(-90deg)' : 'rotate(0deg)';
+      });
+
+      // Highlight source code when hovering over node
+      if (start !== null && end !== null) {
+        nodeWrapper.addEventListener('mouseenter', (e) => {
+          e.stopPropagation();
+          highlightCodeRange(start, end);
+        });
+        nodeWrapper.addEventListener('mouseleave', (e) => {
+          e.stopPropagation();
+          clearCodeHighlight();
+        });
+      }
+
+      nodeWrapper.appendChild(header);
+      nodeWrapper.appendChild(childrenDiv);
+      return nodeWrapper;
+    }
+
+    function getNodeColorClass(type) {
+      if (type.endsWith('Declaration') || type.endsWith('Statement')) {
+        return 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
+      }
+      if (type.endsWith('Expression')) {
+        return 'bg-blue-500/20 text-blue-300 border border-blue-500/30';
+      }
+      if (type.endsWith('Literal')) {
+        return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+      }
+      if (type.includes('Pattern') || type === 'Identifier') {
+        return 'bg-amber-500/20 text-amber-300 border border-amber-500/30';
+      }
+      return 'bg-slate-800 text-slate-300 border border-slate-700';
+    }
+
+    function renderTokenTable(tokens) {
+      const tbody = document.getElementById('token-table-body');
+      tbody.innerHTML = '';
+
+      document.getElementById('token-count-badge').innerHTML = `<i class="fa-solid fa-coins text-amber-500"></i> ${tokens.length} Tokens`;
+      document.getElementById('token-type-summary').innerText = `${tokens.length} Tokens Captured`;
+
+      if (!tokens || tokens.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500 italic">No tokens available.</td></tr>`;
+        return;
+      }
+
+      tokens.forEach((t, index) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-900 cursor-pointer transition-colors text-[11px]';
+        
+        const locStr = t.loc ? `${t.loc.start.line}:${t.loc.start.column}` : '-';
+        const rangeStr = `${t.start}-${t.end}`;
+
+        tr.innerHTML = `
+          <td class="p-2 text-center text-slate-500 font-mono">${index + 1}</td>
+          <td class="p-2"><span class="bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700">${escapeHtml(t.type)}</span></td>
+          <td class="p-2 text-emerald-400 font-bold max-w-xs truncate">${escapeHtml(t.value)}</td>
+          <td class="p-2 text-slate-400">${locStr}</td>
+          <td class="p-2 text-slate-500">${rangeStr}</td>
+        `;
+
+        tr.addEventListener('mouseenter', () => highlightCodeRange(t.start, t.end));
+        tr.addEventListener('mouseleave', () => clearCodeHighlight());
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderJsonView(ast) {
+      const viewer = document.getElementById('json-viewer');
+      if (!ast) {
+        viewer.textContent = '// No AST generated';
+        return;
+      }
+      viewer.textContent = JSON.stringify(ast, null, 2);
+    }
+
+    function renderDiagnostics(err) {
+      const container = document.getElementById('error-container');
+      const badge = document.getElementById('error-badge');
+
+      if (!err) {
+        badge.classList.add('hidden');
+        container.innerHTML = `
+          <div class="p-4 bg-emerald-950/40 border border-emerald-500/30 rounded-lg text-emerald-300 text-xs flex items-center gap-3">
+            <i class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>
+            <div>
+              <div class="font-bold">No Syntax or Parsing Errors</div>
+              <div class="text-emerald-400/80">Source code conforms to selected ECMAScript grammar specification.</div>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      badge.innerText = '1';
+      badge.classList.remove('hidden');
+
+      const line = err.loc ? err.loc.line : (err.lineNumber || '?');
+      const col = err.loc ? err.loc.column : (err.column || '?');
+      const msg = err.message || err.toString();
+
+      container.innerHTML = `
+        <div class="p-4 bg-rose-950/50 border border-rose-500/40 rounded-lg text-rose-200 text-xs space-y-3 shadow-lg">
+          <div class="flex items-start gap-3">
+            <i class="fa-solid fa-triangle-exclamation text-rose-400 text-xl mt-0.5"></i>
+            <div class="flex-1">
+              <div class="font-bold text-sm text-rose-300">Syntax / Parse Error Detected</div>
+              <div class="text-slate-300 font-mono mt-1 bg-slate-900/80 p-2 rounded border border-rose-900/50">${escapeHtml(msg)}</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 text-[11px] bg-slate-900/60 p-2.5 rounded border border-slate-800">
+            <div><span class="text-slate-400">Line:</span> <strong class="text-rose-400 font-mono">${line}</strong></div>
+            <div><span class="text-slate-400">Column:</span> <strong class="text-rose-400 font-mono">${col}</strong></div>
+            <div><span class="text-slate-400">Parser Engine:</span> <strong class="text-amber-400">${document.getElementById('parser-select').value.toUpperCase()}</strong></div>
+            <div><span class="text-slate-400">ECMA Spec Phase:</span> <strong class="text-indigo-300">Lexical / Syntactic Analysis</strong></div>
+          </div>
+
+          <div class="text-[11px] text-slate-300 bg-indigo-950/30 border border-indigo-500/20 p-2.5 rounded space-y-1">
+            <div class="font-semibold text-indigo-300 flex items-center gap-1">
+              <i class="fa-solid fa-lightbulb text-yellow-400"></i> ECMAScript Implementation Analysis Note:
+            </div>
+            <p class="text-slate-400">
+              In the ECMA-262 standard specification, early syntax errors are thrown during parsing before any code evaluation/execution takes place. Ensure statement terminators, production rule sequences, and keywords match standard rules.
+            </p>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSpecGrammarMap(ast) {
+      const container = document.getElementById('spec-grammar-list');
+      container.innerHTML = '';
+
+      if (!ast) {
+        container.innerHTML = `<div class="p-4 text-center text-slate-500 italic">Parse code successfully to view ECMA-262 grammar mappings.</div>`;
+        return;
+      }
+
+      // Collect unique node types present in AST
+      const nodeTypes = new Set();
+      function traverse(n) {
+        if (!n || typeof n !== 'object') return;
+        if (n.type) nodeTypes.add(n.type);
+        Object.keys(n).forEach(k => {
+          if (k !== 'loc' && k !== 'range') traverse(n[k]);
+        });
+      }
+      traverse(ast);
+
+      const ECMA_GRAMMAR_DB = {
+        'Program': { rule: 'Script / Module', ref: 'ECMA-262 § 16.1', desc: 'Top-level goal symbol representing entire source file script or ECMAScript module.' },
+        'ImportDeclaration': { rule: 'ImportDeclaration : import ImportClause FromClause ;', ref: 'ECMA-262 § 16.2.2', desc: 'Binds exported bindings from external ES modules into current scope.' },
+        'VariableDeclaration': { rule: 'LexicalDeclaration / VariableStatement', ref: 'ECMA-262 § 14.3', desc: 'Defines variables in lexical block scope (let/const) or function scope (var).' },
+        'FunctionDeclaration': { rule: 'FunctionDeclaration : function BindingIdentifier ( FormalParameters ) { FunctionBody }', ref: 'ECMA-262 § 15.2', desc: 'Hoisted function construct creating a functional object instance.' },
+        'ClassDeclaration': { rule: 'ClassDeclaration : class BindingIdentifier ClassTail', ref: 'ECMA-262 § 15.7', desc: 'Syntactic sugar over prototype delegation, introducing constructor and static/private elements.' },
+        'BinaryExpression': { rule: 'AdditiveExpression / MultiplicativeExpression / RelationalExpression', ref: 'ECMA-262 § 13.8 - 13.10', desc: 'Evaluates infix operators respecting standard precedence & type coercion semantics.' },
+        'CallExpression': { rule: 'CallExpression : CoverCallExpressionAndAsyncArrowHead', ref: 'ECMA-262 § 13.3', desc: 'Invokes [[Call]] internal method on function objects passing arguments list.' },
+        'MemberExpression': { rule: 'MemberExpression : MemberExpression [ Expression ] | MemberExpression . IdentifierName', ref: 'ECMA-262 § 13.3', desc: 'Retrieves property value via internal [[Get]] specification method.' },
+        'ChainExpression': { rule: 'OptionalChain : ?. [ Expression ] | ?. IdentifierName', ref: 'ECMA-262 § 13.3.11', desc: 'Short-circuits evaluation to undefined if base object is null or undefined.' },
+        'AwaitExpression': { rule: 'AwaitExpression : await UnaryExpression', ref: 'ECMA-262 § 15.8', desc: 'Suspends async function execution context until promise state fulfills or rejects.' },
+        'YieldExpression': { rule: 'YieldExpression : yield AssignmentExpression', ref: 'ECMA-262 § 15.5', desc: 'Yields execution control and value back to caller iterator.' }
+      };
+
+      nodeTypes.forEach(type => {
+        const info = ECMA_GRAMMAR_DB[type] || {
+          rule: `${type} Syntax Production`,
+          ref: 'ECMA-262 Specification',
+          desc: `Standard AST representation for ${type} constructs.`
+        };
+
+        const card = document.createElement('div');
+        card.className = 'bg-slate-900 border border-slate-800 p-3 rounded-lg space-y-1';
+        card.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-amber-300 font-mono">${type}</span>
+            <span class="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800/60 px-2 py-0.5 rounded font-mono">${info.ref}</span>
+          </div>
+          <div class="text-emerald-400 font-mono text-[11px]">${escapeHtml(info.rule)}</div>
+          <p class="text-slate-400 text-[11px]">${info.desc}</p>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function highlightCodeRange(start, end) {
+      clearCodeHighlight();
+      if (start === null || end === null || !cmEditor) return;
+
+      const posFrom = cmEditor.posFromIndex(start);
+      const posTo = cmEditor.posFromIndex(end);
+
+      currentHighlightMarker = cmEditor.markText(posFrom, posTo, {
+        className: 'cm-highlight-range'
+      });
+
+      cmEditor.scrollIntoView(posFrom, 100);
+    }
+
+    function clearCodeHighlight() {
+      if (currentHighlightMarker) {
+        currentHighlightMarker.clear();
+        currentHighlightMarker = null;
+      }
+    }
+
+    function highlightErrorInEditor(err) {
+      if (!err || !cmEditor) return;
+
+      let line = 0;
+      if (err.loc) {
+        line = err.loc.line - 1;
+      } else if (err.lineNumber) {
+        line = err.lineNumber - 1;
+      }
+
+      cmEditor.addLineClass(line, 'background', 'cm-error-line');
+    }
+
+    function clearErrorHighlights() {
+      if (!cmEditor) return;
+      for (let i = 0; i < cmEditor.lineCount(); i++) {
+        cmEditor.removeLineClass(i, 'background', 'cm-error-line');
+      }
+    }
+
+    function updateStatus(success, message, duration = 0) {
+      const indicator = document.getElementById('status-indicator');
+      const text = document.getElementById('status-text');
+
+      if (success) {
+        indicator.className = 'w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50';
+        text.innerText = message;
+        text.className = 'text-slate-300';
+      } else {
+        indicator.className = 'w-2 h-2 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50 animate-pulse';
+        text.innerText = `${message} (${duration}ms)`;
+        text.className = 'text-rose-400 font-medium';
+      }
+    }
+
+    function filterInspectorNodes(searchTerm) {
+      const nodes = document.querySelectorAll('.ast-node');
+      nodes.forEach(node => {
+        if (!searchTerm) {
+          node.classList.remove('hidden');
+          return;
+        }
+        const text = node.innerText.toLowerCase();
+        if (text.includes(searchTerm)) {
+          node.classList.remove('hidden');
+        } else {
+          node.classList.add('hidden');
+        }
+      });
+    }
+
+    function toggleAllAstNodes(expand) {
+      document.querySelectorAll('#ast-tree-container .ast-node-group > div, #ast-tree-container .ast-node > div').forEach(div => {
+        if (div.previousElementSibling && div.previousElementSibling.querySelector('i')) {
+          const icon = div.previousElementSibling.querySelector('i');
+          if (expand) {
+            div.classList.remove('hidden');
+            icon.style.transform = 'rotate(0deg)';
+          } else {
+            div.classList.add('hidden');
+            icon.style.transform = 'rotate(-90deg)';
+          }
+        }
+      });
+    }
+
+    function showToast(msg, type = 'info') {
+      const toast = document.getElementById('toast');
+      const msgEl = document.getElementById('toast-msg');
+      const icon = document.getElementById('toast-icon');
+
+      msgEl.innerText = msg;
+      if (type === 'success') {
+        icon.className = 'fa-solid fa-circle-check text-emerald-400';
+      } else {
+        icon.className = 'fa-solid fa-circle-info text-indigo-400';
+      }
+
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 3000);
+    }
+
+    function copyToClipboard(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+
+    function escapeHtml(str) {
+      if (typeof str !== 'string') return str;
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function debounce(func, wait) {
+      let timeout;
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+      };
+    }
+  </script>
+</body>
+</html>
